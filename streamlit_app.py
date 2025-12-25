@@ -1,7 +1,6 @@
 """
 Market Dashboard - Streamlit 버전 (흰색 테마)
-Fear & Greed + VIX, 국채금리, 하이일드, 달러, 금, 비트코인, S&P500, NASDAQ
-차트: 1개월, 1년, 3년 (정적 차트)
+Fear & Greed + 주요 지수 + 개별 종목/ETF
 """
 import streamlit as st
 import requests
@@ -18,7 +17,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# 흰색 테마 스타일 + 2x2 그리드 고정
+# 흰색 테마 스타일
 st.markdown("""
 <style>
     .stApp {
@@ -40,7 +39,6 @@ st.markdown("""
         margin-bottom: 10px;
     }
     
-    /* 2x2 그리드 - 모바일에서도 2컬럼 유지 */
     .compare-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -101,6 +99,16 @@ st.markdown("""
         font-size: 11px;
         text-align: center;
     }
+    .section-divider {
+        color: #1a1a2e;
+        font-size: 16px;
+        font-weight: bold;
+        background-color: #e9ecef;
+        padding: 10px;
+        border-radius: 8px;
+        margin: 20px 0 10px 0;
+        text-align: center;
+    }
     hr {
         border: none;
         border-top: 1px solid #e9ecef;
@@ -112,7 +120,6 @@ st.markdown("""
 
 # ===== 색상 함수 =====
 def get_fng_color(value):
-    """Fear & Greed 값에 따른 색상"""
     if value < 25:
         return '#d32f2f'
     elif value < 45:
@@ -126,7 +133,6 @@ def get_fng_color(value):
 
 
 def get_fng_rating(value):
-    """Fear & Greed 상태 텍스트"""
     if value < 25:
         return 'Extreme Fear'
     elif value < 45:
@@ -142,7 +148,6 @@ def get_fng_rating(value):
 # ===== 데이터 가져오기 =====
 @st.cache_data(ttl=300)
 def fetch_fear_greed():
-    """Fear & Greed 데이터 가져오기"""
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
@@ -171,7 +176,6 @@ def fetch_fear_greed():
 
 @st.cache_data(ttl=300)
 def fetch_market_data(ticker):
-    """Yahoo Finance에서 데이터 가져오기"""
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365*3 + 30)
@@ -214,9 +218,36 @@ def fetch_market_data(ticker):
         return None
 
 
-# ===== 차트 함수 (정적) =====
+@st.cache_data(ttl=300)
+def fetch_ohlc_data_6m(ticker):
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)
+        
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        if data.empty:
+            return None
+        
+        if isinstance(data.columns, pd.MultiIndex):
+            ohlc = pd.DataFrame({
+                'Open': data['Open'][ticker],
+                'High': data['High'][ticker],
+                'Low': data['Low'][ticker],
+                'Close': data['Close'][ticker]
+            }).dropna()
+        else:
+            ohlc = data[['Open', 'High', 'Low', 'Close']].dropna()
+        
+        ohlc['MA120'] = ohlc['Close'].rolling(window=120).mean()
+        ohlc_6m = ohlc.tail(130)
+        
+        return ohlc_6m
+    except Exception as e:
+        return None
+
+
+# ===== 차트 함수 =====
 def create_gauge_chart(value):
-    """Fear & Greed 반원형 게이지"""
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
@@ -260,7 +291,6 @@ def create_gauge_chart(value):
 
 
 def create_line_chart(data, height=100):
-    """라인 차트 생성 (정적)"""
     if data is None or len(data) == 0:
         return None
     
@@ -273,7 +303,7 @@ def create_line_chart(data, height=100):
         line=dict(color='#1976d2', width=1.5),
         fill='tozeroy',
         fillcolor='rgba(25, 118, 210, 0.15)',
-        hoverinfo='skip'  # 호버 비활성화
+        hoverinfo='skip'
     ))
     
     fig.update_layout(
@@ -286,23 +316,78 @@ def create_line_chart(data, height=100):
             showgrid=False,
             linecolor='#dee2e6',
             tickfont={'size': 8, 'color': '#6c757d'},
-            fixedrange=True  # 확대/축소 비활성화
+            fixedrange=True
         ),
         yaxis=dict(
             showgrid=True,
             gridcolor='#e9ecef',
             linecolor='#dee2e6',
             tickfont={'size': 8, 'color': '#6c757d'},
-            fixedrange=True  # 확대/축소 비활성화
+            fixedrange=True
         ),
         showlegend=False,
-        dragmode=False  # 드래그 비활성화
+        dragmode=False
     )
     
     return fig
 
 
-# 차트 표시 config (인터랙티브 기능 완전 제거)
+def create_candlestick_chart_with_ma(ohlc_data, height=180):
+    if ohlc_data is None or len(ohlc_data) == 0:
+        return None
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Candlestick(
+        x=ohlc_data.index,
+        open=ohlc_data['Open'],
+        high=ohlc_data['High'],
+        low=ohlc_data['Low'],
+        close=ohlc_data['Close'],
+        increasing_line_color='#2e7d32',
+        decreasing_line_color='#d32f2f',
+        increasing_fillcolor='#c8e6c9',
+        decreasing_fillcolor='#ffcdd2',
+        hoverinfo='skip',
+        name='Price'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=ohlc_data.index,
+        y=ohlc_data['MA120'],
+        mode='lines',
+        line=dict(color='#ff6f00', width=3),
+        hoverinfo='skip',
+        name='MA 120'
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='#f8f9fa',
+        font={'color': '#6c757d', 'size': 10},
+        height=height,
+        margin=dict(l=5, r=5, t=5, b=20),
+        xaxis=dict(
+            showgrid=False,
+            linecolor='#dee2e6',
+            tickfont={'size': 8, 'color': '#6c757d'},
+            fixedrange=True,
+            rangeslider=dict(visible=False)
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='#e9ecef',
+            linecolor='#dee2e6',
+            tickfont={'size': 8, 'color': '#6c757d'},
+            fixedrange=True
+        ),
+        showlegend=False,
+        dragmode=False
+    )
+    
+    return fig
+
+
 CHART_CONFIG = {
     'displayModeBar': False,
     'staticPlot': True
@@ -327,14 +412,13 @@ if fng_data['success'] and fng_data['score'] > 0:
     color = get_fng_color(score)
     
     gauge_fig = create_gauge_chart(score)
-    st.plotly_chart(gauge_fig, use_container_width=True, config=CHART_CONFIG)
+    st.plotly_chart(gauge_fig, use_container_width=True, config=CHART_CONFIG, key="fng_gauge")
     
     st.markdown(
         f'<p style="text-align: center; font-size: 18px; font-weight: bold; color: {color}; margin-top: -10px;">{rating}</p>',
         unsafe_allow_html=True
     )
     
-    # 비교 데이터 - HTML 그리드로 2x2 고정
     prev_close = fng_data.get('previous_close', 0)
     prev_week = fng_data.get('previous_1_week', 0)
     prev_month = fng_data.get('previous_1_month', 0)
@@ -365,7 +449,7 @@ else:
 
 
 # ===== 지수 섹션 함수 =====
-def render_index_section(title, ticker, format_str='{:.2f}'):
+def render_index_section(title, ticker, format_str='{:.2f}', show_candle=False, show_1m=True):
     """지수 섹션 렌더링"""
     st.markdown("---")
     
@@ -390,28 +474,66 @@ def render_index_section(title, ticker, format_str='{:.2f}'):
         </div>
         """, unsafe_allow_html=True)
         
-        periods = [('1M', '1개월'), ('1Y', '1년'), ('3Y', '3년')]
+        # 6개월 캔들스틱 차트 + 120일 MA
+        if show_candle:
+            ohlc_data = fetch_ohlc_data_6m(ticker)
+            if ohlc_data is not None and len(ohlc_data) > 0:
+                st.markdown('<p class="period-label">6개월 일봉 + MA 120 <span style="color: #ff6f00; font-weight: bold;">━</span></p>', unsafe_allow_html=True)
+                candle_chart = create_candlestick_chart_with_ma(ohlc_data)
+                if candle_chart:
+                    st.plotly_chart(candle_chart, use_container_width=True, config=CHART_CONFIG, key=f"{ticker}_candle")
+        
+        # 라인 차트
+        if show_1m:
+            periods = [('1M', '1개월'), ('1Y', '1년'), ('3Y', '3년')]
+        else:
+            periods = [('1Y', '1년'), ('3Y', '3년')]
         
         for period_key, period_label in periods:
             if period_key in data and len(data[period_key]) > 0:
                 st.markdown(f'<p class="period-label">{period_label}</p>', unsafe_allow_html=True)
                 chart = create_line_chart(data[period_key])
                 if chart:
-                    st.plotly_chart(chart, use_container_width=True, config=CHART_CONFIG)
+                    st.plotly_chart(chart, use_container_width=True, config=CHART_CONFIG, key=f"{ticker}_{period_key}")
     else:
         st.markdown(f'<span class="index-title">{title}</span>', unsafe_allow_html=True)
         st.warning("데이터를 가져올 수 없습니다.")
 
 
-# ===== 지수들 =====
-render_index_section("VIX (공포지수)", "^VIX", '{:.2f}')
-render_index_section("10년물 국채금리 (%)", "^TNX", '{:.2f}')
-render_index_section("하이일드 (HYG ETF)", "HYG", '{:.2f}')
-render_index_section("달러 인덱스", "DX-Y.NYB", '{:.2f}')
-render_index_section("금 (Gold)", "GC=F", '{:,.0f}')
-render_index_section("비트코인", "BTC-USD", '{:,.0f}')
-render_index_section("S&P 500", "^GSPC", '{:,.0f}')
-render_index_section("NASDAQ", "^IXIC", '{:,.0f}')
+# ===== 주요 지수 =====
+render_index_section("VIX (공포지수)", "^VIX", '{:.2f}', show_candle=False, show_1m=True)
+render_index_section("10년물 국채금리 (%)", "^TNX", '{:.2f}', show_candle=False, show_1m=False)
+render_index_section("하이일드 (HYG ETF)", "HYG", '{:.2f}', show_candle=False, show_1m=False)
+render_index_section("달러 인덱스", "DX-Y.NYB", '{:.2f}', show_candle=False, show_1m=False)
+render_index_section("금 (Gold)", "GC=F", '{:,.0f}', show_candle=False, show_1m=False)
+render_index_section("비트코인", "BTC-USD", '{:,.0f}', show_candle=True, show_1m=False)
+render_index_section("NASDAQ", "^IXIC", '{:,.0f}', show_candle=True, show_1m=False)
+
+
+# ===== 개별 종목 / ETF =====
+st.markdown('<div class="section-divider">📈 ETF & 개별종목</div>', unsafe_allow_html=True)
+
+# ETF
+render_index_section("SPY (S&P 500 ETF)", "SPY", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("QQQ (NASDAQ 100 ETF)", "QQQ", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("TQQQ (NASDAQ 3x)", "TQQQ", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("SCHD (배당 ETF)", "SCHD", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("BLOK (블록체인 ETF)", "BLOK", '{:.2f}', show_candle=True, show_1m=False)
+
+# 개별종목
+render_index_section("AAPL (Apple)", "AAPL", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("CRCL (Circle)", "CRCL", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("DIS (Disney)", "DIS", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("GOOG (Alphabet)", "GOOG", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("INMD (InMode)", "INMD", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("MSTR (MicroStrategy)", "MSTR", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("NVDA (NVIDIA)", "NVDA", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("PFE (Pfizer)", "PFE", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("PLTR (Palantir)", "PLTR", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("TSLA (Tesla)", "TSLA", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("UNH (UnitedHealth)", "UNH", '{:.2f}', show_candle=True, show_1m=False)
+render_index_section("XOM (ExxonMobil)", "XOM", '{:.2f}', show_candle=True, show_1m=False)
+
 
 # 업데이트 시간
 st.markdown("---")
