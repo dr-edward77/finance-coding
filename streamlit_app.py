@@ -222,7 +222,8 @@ def fetch_market_data(ticker):
 def fetch_ohlc_data_6m(ticker):
     try:
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)
+        # 200일 MA 계산을 위해 더 많은 데이터 필요
+        start_date = end_date - timedelta(days=500)
         
         data = yf.download(ticker, start=start_date, end=end_date, progress=False)
         if data.empty:
@@ -238,7 +239,8 @@ def fetch_ohlc_data_6m(ticker):
         else:
             ohlc = data[['Open', 'High', 'Low', 'Close']].dropna()
         
-        ohlc['MA120'] = ohlc['Close'].rolling(window=120).mean()
+        # 200일 이동평균선 계산
+        ohlc['MA200'] = ohlc['Close'].rolling(window=200).mean()
         ohlc_6m = ohlc.tail(130)
         
         return ohlc_6m
@@ -352,13 +354,14 @@ def create_candlestick_chart_with_ma(ohlc_data, height=180):
         name='Price'
     ))
     
+    # 200일 이동평균선
     fig.add_trace(go.Scatter(
         x=ohlc_data.index,
-        y=ohlc_data['MA120'],
+        y=ohlc_data['MA200'],
         mode='lines',
         line=dict(color='#ff6f00', width=3),
         hoverinfo='skip',
-        name='MA 120'
+        name='MA 200'
     ))
     
     fig.update_layout(
@@ -474,11 +477,11 @@ def render_index_section(title, ticker, format_str='{:.2f}', show_candle=False, 
         </div>
         """, unsafe_allow_html=True)
         
-        # 6개월 캔들스틱 차트 + 120일 MA
+        # 6개월 캔들스틱 차트 + 200일 MA
         if show_candle:
             ohlc_data = fetch_ohlc_data_6m(ticker)
             if ohlc_data is not None and len(ohlc_data) > 0:
-                st.markdown('<p class="period-label">6개월 일봉 + MA 120 <span style="color: #ff6f00; font-weight: bold;">━</span></p>', unsafe_allow_html=True)
+                st.markdown('<p class="period-label">6개월 일봉 + MA 200 <span style="color: #ff6f00; font-weight: bold;">━</span></p>', unsafe_allow_html=True)
                 candle_chart = create_candlestick_chart_with_ma(ohlc_data)
                 if candle_chart:
                     st.plotly_chart(candle_chart, use_container_width=True, config=CHART_CONFIG, key=f"{ticker}_candle")
