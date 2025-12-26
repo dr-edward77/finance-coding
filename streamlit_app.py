@@ -1,6 +1,7 @@
 """
 Market Dashboard - Streamlit 버전 (흰색 테마)
-Fear & Greed + 주요 지수 + 개별 종목/ETF
+Fear & Greed + 주요 지수 + 개별 종목/ETF + 사용자 추가 종목
+로컬 JSON 파일로 영구 저장
 """
 import streamlit as st
 import requests
@@ -9,6 +10,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import json
+import os
 
 # 페이지 설정
 st.set_page_config(
@@ -16,6 +19,38 @@ st.set_page_config(
     page_icon="📊",
     layout="centered"
 )
+
+# ===== 로컬 파일 저장 설정 =====
+SAVE_FILE = "custom_tickers.json"
+
+
+def load_custom_tickers():
+    """로컬 파일에서 사용자 티커 목록 불러오기"""
+    try:
+        if os.path.exists(SAVE_FILE):
+            with open(SAVE_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('custom_tickers', [])
+        return []
+    except:
+        return []
+
+
+def save_custom_tickers(tickers):
+    """로컬 파일에 사용자 티커 목록 저장"""
+    try:
+        with open(SAVE_FILE, 'w') as f:
+            json.dump({'custom_tickers': tickers}, f)
+        st.session_state.custom_tickers = tickers
+        return True
+    except:
+        return False
+
+
+# session_state 초기화
+if 'custom_tickers' not in st.session_state:
+    st.session_state.custom_tickers = load_custom_tickers()
+
 
 # 흰색 테마 스타일
 st.markdown("""
@@ -222,7 +257,6 @@ def fetch_market_data(ticker):
 def fetch_ohlc_data_6m(ticker):
     try:
         end_date = datetime.now()
-        # 200일 MA 계산을 위해 더 많은 데이터 필요
         start_date = end_date - timedelta(days=500)
         
         data = yf.download(ticker, start=start_date, end=end_date, progress=False)
@@ -239,13 +273,21 @@ def fetch_ohlc_data_6m(ticker):
         else:
             ohlc = data[['Open', 'High', 'Low', 'Close']].dropna()
         
-        # 200일 이동평균선 계산
         ohlc['MA200'] = ohlc['Close'].rolling(window=200).mean()
         ohlc_6m = ohlc.tail(130)
         
         return ohlc_6m
     except Exception as e:
         return None
+
+
+@st.cache_data(ttl=300)
+def get_ticker_name(ticker):
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get('shortName', ticker)
+    except:
+        return ticker
 
 
 # ===== 차트 함수 =====
@@ -354,7 +396,6 @@ def create_candlestick_chart_with_ma(ohlc_data, height=180):
         name='Price'
     ))
     
-    # 200일 이동평균선
     fig.add_trace(go.Scatter(
         x=ohlc_data.index,
         y=ohlc_data['MA200'],
@@ -402,6 +443,7 @@ st.markdown('<p class="main-title">📊 Market Dashboard</p>', unsafe_allow_html
 
 if st.button("🔄 새로고침"):
     st.cache_data.clear()
+    st.session_state.custom_tickers = load_custom_tickers()
 
 # ===== 1. Fear & Greed Index =====
 st.markdown("---")
@@ -452,7 +494,7 @@ else:
 
 
 # ===== 지수 섹션 함수 =====
-def render_index_section(title, ticker, format_str='{:.2f}', show_candle=False, show_1m=True):
+def render_index_section(title, ticker, format_str='{:.2f}', show_candle=False, show_1m=True, show_delete=False):
     """지수 섹션 렌더링"""
     st.markdown("---")
     
@@ -467,15 +509,34 @@ def render_index_section(title, ticker, format_str='{:.2f}', show_candle=False, 
         else:
             change_html = f'<span class="change-negative">{change:.2f}%</span>'
         
-        st.markdown(f"""
-        <div class="index-header">
-            <span class="index-title">{title}</span>
-            <span>
-                <span class="index-value">{format_str.format(current)}</span>
-                {change_html}
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        # 삭제 버튼 포함 헤더
+        if show_delete:
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f"""
+                <div class="index-header">
+                    <span class="index-title">{title}</span>
+                    <span>
+                        <span class="index-value">{format_str.format(current)}</span>
+                        {change_html}
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                if st.button("🗑️", key=f"delete_{ticker}"):
+                    new_tickers = [t for t in st.session_state.custom_tickers if t != ticker]
+                    save_custom_tickers(new_tickers)
+                    st.rerun()
+        else:
+            st.markdown(f"""
+            <div class="index-header">
+                <span class="index-title">{title}</span>
+                <span>
+                    <span class="index-value">{format_str.format(current)}</span>
+                    {change_html}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
         
         # 6개월 캔들스틱 차트 + 200일 MA
         if show_candle:
@@ -536,6 +597,51 @@ render_index_section("PLTR (Palantir)", "PLTR", '{:.2f}', show_candle=True, show
 render_index_section("TSLA (Tesla)", "TSLA", '{:.2f}', show_candle=True, show_1m=False)
 render_index_section("UNH (UnitedHealth)", "UNH", '{:.2f}', show_candle=True, show_1m=False)
 render_index_section("XOM (ExxonMobil)", "XOM", '{:.2f}', show_candle=True, show_1m=False)
+
+
+# ===== 사용자 추가 종목 =====
+if len(st.session_state.custom_tickers) > 0:
+    st.markdown('<div class="section-divider">⭐ 내가 추가한 종목</div>', unsafe_allow_html=True)
+    
+    for ticker in st.session_state.custom_tickers:
+        ticker_name = get_ticker_name(ticker)
+        render_index_section(f"{ticker} ({ticker_name})", ticker, '{:.2f}', show_candle=True, show_1m=False, show_delete=True)
+
+
+# ===== 종목 추가 버튼 =====
+st.markdown("---")
+
+# 티커 입력 폼
+with st.form(key="add_ticker_form", clear_on_submit=True):
+    st.markdown("**➕ 종목 추가**")
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        new_ticker = st.text_input(
+            "티커 입력",
+            placeholder="예: MSFT, AMZN",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        submit = st.form_submit_button("추가", use_container_width=True)
+    
+    if submit and new_ticker:
+        ticker_upper = new_ticker.upper().strip()
+        if ticker_upper in st.session_state.custom_tickers:
+            st.warning(f"'{ticker_upper}'는 이미 추가되어 있습니다.")
+        else:
+            # 티커 유효성 검사
+            test_data = fetch_market_data(ticker_upper)
+            if test_data:
+                new_tickers = st.session_state.custom_tickers + [ticker_upper]
+                if save_custom_tickers(new_tickers):
+                    st.success(f"'{ticker_upper}' 추가됨!")
+                    st.rerun()
+                else:
+                    st.error("저장 중 오류가 발생했습니다.")
+            else:
+                st.error(f"'{ticker_upper}' 티커를 찾을 수 없습니다.")
 
 
 # 업데이트 시간
