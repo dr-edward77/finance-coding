@@ -1,7 +1,7 @@
 """
 Market Dashboard - Streamlit 버전 (흰색 테마)
 Fear & Greed + 주요 지수 + 개별 종목/ETF + 사용자 추가 종목
-로컬 JSON 파일로 영구 저장
+로컬 JSON 파일로 영구 저장 + 비밀번호 보호
 """
 import streamlit as st
 import requests
@@ -19,6 +19,68 @@ st.set_page_config(
     page_icon="📊",
     layout="centered"
 )
+
+# ===== 비밀번호 설정 =====
+PASSWORD = "1666"
+
+# 로그인 상태 초기화
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+
+# ===== 비밀번호 입력 화면 =====
+def show_login():
+    st.markdown("""
+    <style>
+        .stApp {
+            background-color: #ffffff;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .login-title {
+            color: #1a1a2e;
+            font-size: 28px;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 100px;
+            margin-bottom: 30px;
+        }
+        .login-subtitle {
+            color: #6c757d;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<p class="login-title">🔒 Market Dashboard</p>', unsafe_allow_html=True)
+    st.markdown('<p class="login-subtitle">비밀번호를 입력하세요</p>', unsafe_allow_html=True)
+    
+    # 비밀번호 입력
+    password_input = st.text_input(
+        "비밀번호",
+        type="password",
+        max_chars=4,
+        placeholder="4자리 비밀번호",
+        label_visibility="collapsed"
+    )
+    
+    if st.button("입장", use_container_width=True):
+        if password_input == PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 틀렸습니다.")
+
+
+# ===== 비밀번호 확인 =====
+if not st.session_state.authenticated:
+    show_login()
+    st.stop()
+
+
+# ===== 여기부터 메인 대시보드 =====
 
 # ===== 로컬 파일 저장 설정 =====
 SAVE_FILE = "custom_tickers.json"
