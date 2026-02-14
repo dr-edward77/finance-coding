@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Korean News Scraper - 한국 주요 뉴스 스크래퍼
 네이버 뉴스 랭킹에서 주요 언론사별 인기 기사를 수집합니다.
@@ -212,6 +213,10 @@ def parse_args():
 
 
 def main():
+    # 콘솔 한글 출력 깨짐 방지
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
     args = parse_args()
 
     print("한국 주요 뉴스 수집을 시작합니다...")
