@@ -4,3 +4,5 @@ yfinance
 pandas
 numpy
 plotly
+beautifulsoup4
+lxml
