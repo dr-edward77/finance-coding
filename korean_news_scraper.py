@@ -38,8 +38,7 @@ def fetch_page(url, timeout=10, retries=2):
         try:
             response = requests.get(url, headers=HEADERS, timeout=timeout)
             response.raise_for_status()
-            response.encoding = 'utf-8'
-            return BeautifulSoup(response.text, 'lxml')
+            return BeautifulSoup(response.content, 'lxml', from_encoding='utf-8')
         except requests.RequestException as e:
             if attempt < retries:
                 time.sleep(1 * (attempt + 1))
